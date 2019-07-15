@@ -430,7 +430,7 @@ public class CodeWriter {
      * @return Returns the generated code.
      */
     @Override
-    public final String toString() {
+    public String toString() {
         String result = currentState.toString();
 
         // Trim excessive blank lines.
@@ -789,6 +789,16 @@ public class CodeWriter {
      */
     public final CodeWriter closeBlock(String textAfterNewline, Object... args) {
         return dedent().write(textAfterNewline, args);
+    }
+
+    /**
+     * Writes a newline.
+     *
+     * @return Returns the CodeWriter.
+     */
+    public final CodeWriter write() {
+        currentState.writeLine(newline);
+        return this;
     }
 
     /**
