@@ -134,7 +134,8 @@ public interface OpenApiMapper {
      * @param context Conversion context.
      * @param builder OpenAPI builder to modify.
      */
-    default void before(Context context, OpenApi.Builder builder) {}
+    default void before(Context context, OpenApi.Builder builder) {
+    }
 
     /**
      * Updates a security scheme object.
