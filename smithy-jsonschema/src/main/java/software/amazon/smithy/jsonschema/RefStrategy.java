@@ -15,19 +15,18 @@
 
 package software.amazon.smithy.jsonschema;
 
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
 import software.amazon.smithy.model.node.ObjectNode;
+import software.amazon.smithy.model.shapes.Shape;
 import software.amazon.smithy.model.shapes.ShapeId;
 import software.amazon.smithy.model.shapes.ShapeIndex;
-import software.amazon.smithy.utils.StringUtils;
 
 /**
  * Defines a strategy for converting Shape IDs to JSON schema $ref values.
+ *
+ * <p>This API is currently package-private, but could be exposed in the
+ * future if we *really* need to. Ideally we don't.
  */
-@FunctionalInterface
-public interface RefStrategy {
+interface RefStrategy {
     String DEFAULT_POINTER = "#/definitions";
 
     /**
@@ -36,25 +35,18 @@ public interface RefStrategy {
      * <p>The return value is expected to be a JSON pointer.
      *
      * @param id Shape ID to convert to a $ref string.
-     * @param config JSON schema configuration to use.
      * @return Returns the $ref string (e.g., "#/responses/MyShape").
      */
-    String toPointer(ShapeId id, ObjectNode config);
+    String toPointer(ShapeId id);
 
     /**
-     * Creates a default ref strategy that calls a delegate and deconflicts
-     * pointers by appending an incrementing number to conflicting
-     * IDs.
+     * Returns true if the given shape should be inlined into
+     * its container or if the shape should be a ref.
      *
-     * @param index Shape index to use to deconflict shapes.
-     * @param config JSON schema configuration to use.
-     * @return Returns the created strategy.
-     * @see #createDefaultStrategy()
-     * @see #createDeconflictingStrategy(ShapeIndex, ObjectNode, RefStrategy)
+     * @param shape Shape to check.
+     * @return Returns true if this shape should be inlined.
      */
-    static RefStrategy createDefaultDeconflictingStrategy(ShapeIndex index, ObjectNode config) {
-        return createDeconflictingStrategy(index, config, createDefaultStrategy());
-    }
+    boolean isInlined(Shape shape);
 
     /**
      * Creates a default strategy for converting shape IDs to $refs.
@@ -79,74 +71,9 @@ public interface RefStrategy {
      *
      * @return Returns the created strategy.
      */
-    static RefStrategy createDefaultStrategy() {
-        return (id, config) -> {
-            StringBuilder builder = new StringBuilder();
-
-            String pointer = config.getStringMemberOrDefault(JsonSchemaConstants.DEFINITION_POINTER, DEFAULT_POINTER);
-            builder.append(pointer);
-            if (!pointer.endsWith("/")) {
-                builder.append('/');
-            }
-
-            if (!config.containsMember(JsonSchemaConstants.SMITHY_STRIP_NAMESPACES)) {
-                // Append each namespace part, capitalizing each segment.
-                // For example, "smithy.example" becomes "SmithyExample".
-                for (String part : id.getNamespace().split("\\.")) {
-                    builder.append(StringUtils.capitalize(part));
-                }
-            }
-
-            builder.append(id.getName());
-            id.getMember().ifPresent(memberName -> {
-                // Append the capitalized member name followed by "Member" IFF
-                // the member name doesn't already end in "member".
-                builder.append(StringUtils.capitalize(memberName));
-                if (!memberName.toLowerCase(Locale.US).endsWith("member")) {
-                    builder.append("Member");
-                }
-            });
-
-            return builder.toString();
-        };
-    }
-
-    /**
-     * Creates a ref strategy that calls a delegate and de-conflicts
-     * pointers by appending an incrementing number to conflicting
-     * IDs.
-     *
-     * <p>To make the generated IDs deterministic, shapes are sorted by shape
-     * ID when performing comparisons.
-     *
-     * @param index Shape index to use to de-conflict shapes.
-     * @param config JSON schema configuration to use.
-     * @param delegate Ref strategy to call to and then de-conflict.
-     * @return Returns the created strategy.
-     */
-    static RefStrategy createDeconflictingStrategy(ShapeIndex index, ObjectNode config, RefStrategy delegate) {
-        Map<ShapeId, String> pointers = new HashMap<>();
-        Map<String, ShapeId> reversePointers = new HashMap<>();
-
-        index.shapes().sorted().forEach(shape -> {
-            String pointer = delegate.toPointer(shape.getId(), config);
-
-            if (!reversePointers.containsKey(pointer)) {
-                pointers.put(shape.getId(), pointer);
-                reversePointers.put(pointer, shape.getId());
-                return;
-            }
-
-            for (int i = 2; ; i++) {
-                String incrementedPointer = pointer + i;
-                if (!reversePointers.containsKey(incrementedPointer)) {
-                    pointers.put(shape.getId(), incrementedPointer);
-                    reversePointers.put(incrementedPointer, shape.getId());
-                    return;
-                }
-            }
-        });
-
-        return (id, cfg) -> pointers.computeIfAbsent(id, i -> delegate.toPointer(i, cfg));
+    static RefStrategy createDefaultStrategy(
+            ShapeIndex index, ObjectNode config, PropertyNamingStrategy propertyNamingStrategy) {
+        RefStrategy delegate = new DefaultRefStrategy(index, config, propertyNamingStrategy);
+        return new DeconflictingStrategy(index, delegate);
     }
 }

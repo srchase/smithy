@@ -20,7 +20,6 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -50,6 +49,7 @@ import software.amazon.smithy.model.shapes.MemberShape;
 import software.amazon.smithy.model.shapes.ServiceShape;
 import software.amazon.smithy.model.shapes.SetShape;
 import software.amazon.smithy.model.shapes.Shape;
+import software.amazon.smithy.model.shapes.ShapeId;
 import software.amazon.smithy.model.shapes.ShapeIndex;
 import software.amazon.smithy.model.shapes.ShortShape;
 import software.amazon.smithy.model.shapes.StringShape;
@@ -74,7 +74,7 @@ public class JsonSchemaConverterTest {
                 .addImport(getClass().getResource("recursive.json"))
                 .assemble()
                 .unwrap();
-        SchemaDocument document = JsonSchemaConverter.create().convert(model.getShapeIndex());
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(model.getShapeIndex()).build().convert();
 
         assertThat(document.getDefinitions().keySet(), not(empty()));
     }
@@ -85,37 +85,47 @@ public class JsonSchemaConverterTest {
                 .addImport(getClass().getResource("test-service.json"))
                 .assemble()
                 .unwrap();
-        SchemaDocument document = JsonSchemaConverter.create().convert(model.getShapeIndex());
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(model.getShapeIndex()).build().convert();
 
         assertThat(document.getDefinitions().keySet(), not(empty()));
     }
 
     @Test
-    public void hasCopyConstructor() {
-        Predicate<Shape> predicate = shape -> false;
-        ObjectNode config = Node.objectNodeBuilder().withMember("foo", "bar").build();
-        PropertyNamingStrategy propertyStrategy = (container, member, conf) -> "a";
-        RefStrategy refStrategy = (member, conf) -> "#/foo/bar";
+    public void canConvertShapesThatAreOnlyInTheClosureOfShape() {
+        Model model = Model.assembler()
+                .addImport(getClass().getResource("multiple-closures.json"))
+                .assemble()
+                .unwrap();
+        SchemaDocument document1 = JsonSchemaConverter.builder()
+                .shapeIndex(model.getShapeIndex())
+                .rootShape(ShapeId.from("com.foo#StructureA"))
+                .build()
+                .convert();
+        SchemaDocument document2 = JsonSchemaConverter.builder()
+                .shapeIndex(model.getShapeIndex())
+                .rootShape(ShapeId.from("com.foo#StructureB"))
+                .build()
+                .convert();
 
-        JsonSchemaConverter.create()
-                .config(config)
-                .propertyNamingStrategy(propertyStrategy)
-                .refStrategy(refStrategy)
-                .shapePredicate(predicate)
-                .copy();
+        assertThat(document1.getDefinitions().keySet(), containsInAnyOrder("#/definitions/ReferencedA"));
+        assertThat(document2.getDefinitions().keySet(), containsInAnyOrder("#/definitions/ReferencedB"));
     }
 
     @Test
     public void canFilterShapesWithCustomPredicate() {
         Predicate<Shape> predicate = shape -> !shape.getId().getName().equals("Foo");
         ShapeIndex index = ShapeIndex.builder()
-                .addShape(StringShape.builder().id("smithy.example#Foo").build())
-                .addShape(StringShape.builder().id("smithy.example#Baz").build())
+                .addShape(StructureShape.builder().id("smithy.example#Foo").build())
+                .addShape(StructureShape.builder().id("smithy.example#Baz").build())
                 .build();
-        SchemaDocument doc = JsonSchemaConverter.create().shapePredicate(predicate).convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder()
+                .shapePredicate(predicate)
+                .shapeIndex(index)
+                .build()
+                .convert();
 
-        assertFalse(doc.getDefinition("#/definitions/SmithyExampleFoo").isPresent());
-        assertTrue(doc.getDefinition("#/definitions/SmithyExampleBaz").isPresent());
+        assertFalse(doc.getDefinition("#/definitions/Foo").isPresent());
+        assertTrue(doc.getDefinition("#/definitions/Baz").isPresent());
     }
 
     @Test
@@ -130,38 +140,25 @@ public class JsonSchemaConverterTest {
         PropertyNamingStrategy strategy = (container, memberShape, conf) -> {
             return memberShape.getMemberName().toUpperCase(Locale.US);
         };
-        SchemaDocument doc = JsonSchemaConverter.create().propertyNamingStrategy(strategy).convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder()
+                .propertyNamingStrategy(strategy)
+                .shapeIndex(index)
+                .build()
+                .convert();
 
-        assertThat(doc.getDefinition("#/definitions/SmithyExampleFoo").get().getProperties().keySet(),
+        assertThat(doc.getDefinition("#/definitions/Foo").get().getProperties().keySet(),
                    contains("BAR"));
     }
 
     @Test
-    public void canUseCustomRefStrategy() {
-        StringShape string = StringShape.builder().id("smithy.example#String").build();
-        MemberShape member = MemberShape.builder().id("smithy.example#Foo$bar").target(string).build();
-        StructureShape struct = StructureShape.builder()
-                .id("smithy.example#Foo")
-                .addMember(member)
-                .build();
-        ShapeIndex index = ShapeIndex.builder().addShapes(struct, member, string).build();
-        RefStrategy strategy = (id, conf) -> "#/foo/" + id;
-        SchemaDocument doc = JsonSchemaConverter.create().refStrategy(strategy).convert(index);
-
-        assertThat(doc.getDefinitions().keySet(), containsInAnyOrder(
-                "#/foo/smithy.example#Foo",
-                "#/foo/smithy.example#Foo$bar",
-                "#/foo/smithy.example#String"));
-    }
-
-    @Test
     public void canAddCustomSchemaMapper() {
-        ShapeIndex index = ShapeIndex.builder().addShape(StringShape.builder().id("smithy.example#Foo").build()).build();
+        Shape struct = StructureShape.builder().id("smithy.example#Foo").build();
+        ShapeIndex index = ShapeIndex.builder().addShape(struct).build();
         JsonSchemaMapper mapper = (shape, builder, conf) -> builder.putExtension("Hi", Node.from("There"));
-        SchemaDocument doc = JsonSchemaConverter.create().addMapper(mapper).convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().addMapper(mapper).shapeIndex(index).build().convert();
 
-        assertTrue(doc.getDefinition("#/definitions/SmithyExampleFoo").isPresent());
-        assertTrue(doc.getDefinition("#/definitions/SmithyExampleFoo").get().getExtension("Hi").isPresent());
+        assertTrue(doc.getDefinition("#/definitions/Foo").isPresent());
+        assertTrue(doc.getDefinition("#/definitions/Foo").get().getExtension("Hi").isPresent());
     }
 
     @Test
@@ -169,7 +166,7 @@ public class JsonSchemaConverterTest {
         ShapeIndex index = ShapeIndex.builder()
                 .addShape(ServiceShape.builder().id("smithy.example#Service").version("X").build())
                 .build();
-        SchemaDocument doc = JsonSchemaConverter.create().convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().shapeIndex(index).build().convert();
 
         assertThat(doc.getDefinitions().keySet(), empty());
     }
@@ -179,7 +176,7 @@ public class JsonSchemaConverterTest {
         ShapeIndex index = ShapeIndex.builder()
                 .addShape(StringShape.builder().id("smithy.example#String").addTrait(new PrivateTrait()).build())
                 .build();
-        SchemaDocument doc = JsonSchemaConverter.create().convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().shapeIndex(index).build().convert();
 
         assertThat(doc.getDefinitions().keySet(), empty());
     }
@@ -194,9 +191,9 @@ public class JsonSchemaConverterTest {
                 .addTrait(new PrivateTrait())
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(struct, member, string).build();
-        SchemaDocument doc = JsonSchemaConverter.create().convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().shapeIndex(index).build().convert();
 
-        assertThat(doc.getDefinitions().keySet(), contains("#/definitions/SmithyExampleString"));
+        assertThat(doc.getDefinitions().keySet(), empty());
     }
 
     @Test
@@ -205,10 +202,10 @@ public class JsonSchemaConverterTest {
         MemberShape member = MemberShape.builder().id("smithy.example#Foo$bar").target(string).build();
         StructureShape struct = StructureShape.builder().id("smithy.example#Foo").addMember(member).build();
         ShapeIndex index = ShapeIndex.builder().addShapes(struct, member, string).build();
-        SchemaDocument doc = JsonSchemaConverter.create().convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().shapeIndex(index).build().convert();
 
         // The member and the target are filtered out.
-        assertThat(doc.getDefinitions().keySet(), contains("#/definitions/SmithyExampleFoo"));
+        assertThat(doc.getDefinitions().keySet(), contains("#/definitions/Foo"));
     }
 
     @Test
@@ -222,15 +219,12 @@ public class JsonSchemaConverterTest {
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(struct, member, string).build();
         ObjectNode config = Node.objectNodeBuilder()
-                .withMember(JsonSchemaConstants.SMITHY_INCLUDE_PRIVATE_SHAPES, true)
+                .withMember(JsonSchemaConstants.INCLUDE_PRIVATE_SHAPES, true)
                 .build();
-        SchemaDocument doc = JsonSchemaConverter.create().config(config).convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().config(config).shapeIndex(index).build().convert();
 
         assertThat(doc.getDefinitions().keySet(), not(empty()));
-        assertThat(doc.getDefinitions().keySet(), containsInAnyOrder(
-                "#/definitions/SmithyExampleFoo",
-                "#/definitions/SmithyExampleFooBarMember",
-                "#/definitions/SmithyExampleString"));
+        assertThat(doc.getDefinitions().keySet(), contains("#/definitions/Foo"));
     }
 
     @Test
@@ -240,7 +234,7 @@ public class JsonSchemaConverterTest {
                 .withMember(JsonSchemaConstants.SCHEMA_DOCUMENT_EXTENSIONS, Node.objectNode()
                         .withMember("foo", Node.from("bar")))
                 .build();
-        SchemaDocument doc = JsonSchemaConverter.create().config(config).convert(index);
+        SchemaDocument doc = JsonSchemaConverter.builder().config(config).shapeIndex(index).build().convert();
 
         assertThat(doc.getDefinitions().keySet(), empty());
         assertThat(doc.getExtension("foo").get(), equalTo(Node.from("bar")));
@@ -250,7 +244,7 @@ public class JsonSchemaConverterTest {
     public void convertsRootSchemas() {
         StringShape shape = StringShape.builder().id("smithy.example#String").build();
         ShapeIndex index = ShapeIndex.builder().addShape(shape).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(shape);
 
         assertThat(document.getRootSchema().getType().get(), equalTo("string"));
     }
@@ -259,7 +253,7 @@ public class JsonSchemaConverterTest {
     public void convertsBlobToString() {
         BlobShape shape = BlobShape.builder().id("smithy.example#Blob").build();
         ShapeIndex index = ShapeIndex.builder().addShape(shape).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(shape);
 
         assertThat(document.getRootSchema().getType().get(), equalTo("string"));
     }
@@ -278,7 +272,8 @@ public class JsonSchemaConverterTest {
 
         for (Shape shape : shapes) {
             ShapeIndex index = ShapeIndex.builder().addShape(shape).build();
-            SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+            SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build()
+                    .convertShape(shape);
 
             assertThat(document.getRootSchema().getType().get(), equalTo("number"));
         }
@@ -291,7 +286,8 @@ public class JsonSchemaConverterTest {
                 .addTrait(RangeTrait.builder().min(BigDecimal.valueOf(10)).max(BigDecimal.valueOf(100)).build())
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShape(shape).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build()
+                .convertShape(shape);
 
         assertThat(document.getRootSchema().getType().get(), equalTo("number"));
         assertThat(document.getRootSchema().getMinimum().get(), equalTo(BigDecimal.valueOf(10)));
@@ -302,33 +298,9 @@ public class JsonSchemaConverterTest {
     public void convertsBooleanToBoolean() {
         BooleanShape shape = BooleanShape.builder().id("smithy.example#Boolean").build();
         ShapeIndex index = ShapeIndex.builder().addShape(shape).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(shape);
 
         assertThat(document.getRootSchema().getType().get(), equalTo("boolean"));
-    }
-
-    @Test
-    public void convertsListShapes() {
-        StringShape string = StringShape.builder().id("smithy.api#String").build();
-        MemberShape member = MemberShape.builder()
-                .id("smithy.example#Collection$member")
-                .target("smithy.api#String")
-                .build();
-
-        List<Shape> shapes = ListUtils.of(
-                ListShape.builder().id("smithy.example#Collection").addMember(member).build(),
-                SetShape.builder().id("smithy.example#Collection").addMember(member).build());
-
-        for (Shape shape : shapes) {
-            ShapeIndex index = ShapeIndex.builder().addShapes(string, shape, member).build();
-            SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
-
-            assertThat(document.getRootSchema().getType().get(), equalTo("array"));
-            assertThat(document.getRootSchema().getItems().get().getRef().get(),
-                       equalTo("#/definitions/SmithyExampleCollectionMember"));
-            Schema memberDef = document.getDefinition("#/definitions/SmithyExampleCollectionMember").get();
-            assertThat(memberDef.getType().get(), equalTo("string"));
-        }
     }
 
     @Test
@@ -338,7 +310,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(LengthTrait.builder().min(10L).max(100L).build())
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShape(shape).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(shape);
 
         assertThat(document.getRootSchema().getType().get(), equalTo("string"));
         assertThat(document.getRootSchema().getMinLength().get(), equalTo(10L));
@@ -353,18 +325,21 @@ public class JsonSchemaConverterTest {
                 .target("smithy.api#String")
                 .addTrait(LengthTrait.builder().min(10L).max(100L).build())
                 .build();
-
         List<Shape> shapes = ListUtils.of(
                 ListShape.builder().id("smithy.example#Collection").addMember(member).build(),
                 SetShape.builder().id("smithy.example#Collection").addMember(member).build());
 
         for (Shape shape : shapes) {
             ShapeIndex index = ShapeIndex.builder().addShapes(string, shape, member).build();
-            SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
-            Schema memberDef = document.getDefinition("#/definitions/SmithyExampleCollectionMember").get();
+            SchemaDocument document = JsonSchemaConverter.builder()
+                    .shapeIndex(index)
+                    .build()
+                    .convert();
 
-            assertThat(memberDef.getMinLength().get(), equalTo(10L));
-            assertThat(memberDef.getMaxLength().get(), equalTo(100L));
+            Schema def = document.getDefinition("#/definitions/Collection").get();
+            Schema items = def.getItems().get();
+            assertThat(items.getMinLength().get(), equalTo(10L));
+            assertThat(items.getMaxLength().get(), equalTo(100L));
         }
     }
 
@@ -380,7 +355,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(LengthTrait.builder().min(10L).max(100L).build())
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(string, shape, key, value).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(shape);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getMinProperties().get(), equalTo(10));
@@ -398,7 +373,7 @@ public class JsonSchemaConverterTest {
                 .build();
 
         ShapeIndex index = ShapeIndex.builder().addShapes(string, shape, member).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, shape);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(shape);
 
         assertTrue(document.getRootSchema().getUniqueItems());
     }
@@ -411,7 +386,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(new PatternTrait(pattern))
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(string).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, string);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(string);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getPattern().get(), equalTo(pattern));
@@ -425,7 +400,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(new MediaTypeTrait(mediaType))
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(string).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, string);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(string);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getContentMediaType().get(), equalTo(mediaType));
@@ -439,7 +414,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(new TitleTrait(title))
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(string).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, string);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(string);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getTitle().get(), equalTo(title));
@@ -453,7 +428,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(new DocumentationTrait(docs))
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(string).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, string);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(string);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getDescription().get(), equalTo(docs));
@@ -466,7 +441,7 @@ public class JsonSchemaConverterTest {
                 .addTrait(EnumTrait.builder().addEnum("foo", EnumConstantBody.builder().build()).build())
                 .build();
         ShapeIndex index = ShapeIndex.builder().addShapes(string).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, string);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(string);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getEnumValues().get(), contains("foo"));
@@ -478,7 +453,7 @@ public class JsonSchemaConverterTest {
         MemberShape member = MemberShape.builder().id("a.b#Union$foo").target("smithy.api#String").build();
         UnionShape union = UnionShape.builder().id("a.b#Union").addMember(member).build();
         ShapeIndex index = ShapeIndex.builder().addShapes(union, member, string).build();
-        SchemaDocument document = JsonSchemaConverter.create().convert(index, union);
+        SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(index).build().convertShape(union);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getOneOf(), hasSize(1));
@@ -492,11 +467,13 @@ public class JsonSchemaConverterTest {
         MemberShape member = MemberShape.builder().id("a.b#Union$foo").target("smithy.api#String").build();
         UnionShape union = UnionShape.builder().id("a.b#Union").addMember(member).build();
         ShapeIndex index = ShapeIndex.builder().addShapes(union, member, string).build();
-        SchemaDocument document = JsonSchemaConverter.create()
+        SchemaDocument document = JsonSchemaConverter.builder()
                 .config(Node.objectNodeBuilder()
-                                .withMember(JsonSchemaConstants.SMITHY_UNION_STRATEGY, "object")
+                                .withMember(JsonSchemaConstants.UNION_STRATEGY, "object")
                                 .build())
-                .convert(index, union);
+                .shapeIndex(index)
+                .build()
+                .convertShape(union);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getOneOf(), empty());
@@ -510,11 +487,13 @@ public class JsonSchemaConverterTest {
         MemberShape member = MemberShape.builder().id("a.b#Union$foo").target("smithy.api#String").build();
         UnionShape union = UnionShape.builder().id("a.b#Union").addMember(member).build();
         ShapeIndex index = ShapeIndex.builder().addShapes(union, member, string).build();
-        SchemaDocument document = JsonSchemaConverter.create()
+        SchemaDocument document = JsonSchemaConverter.builder()
                 .config(Node.objectNodeBuilder()
-                                .withMember(JsonSchemaConstants.SMITHY_UNION_STRATEGY, "structure")
+                                .withMember(JsonSchemaConstants.UNION_STRATEGY, "structure")
                                 .build())
-                .convert(index, union);
+                .shapeIndex(index)
+                .build()
+                .convertShape(union);
         Schema schema = document.getRootSchema();
 
         assertThat(schema.getOneOf(), empty());
@@ -524,55 +503,40 @@ public class JsonSchemaConverterTest {
 
     @Test
     public void throwsForUnsupportUnionSetting() {
-        Assertions.assertThrows(UnsupportedOperationException.class, () -> {
+        Assertions.assertThrows(SmithyJsonSchemaException.class, () -> {
             StringShape string = StringShape.builder().id("smithy.api#String").build();
             MemberShape member = MemberShape.builder().id("a.b#Union$foo").target("smithy.api#String").build();
             UnionShape union = UnionShape.builder().id("a.b#Union").addMember(member).build();
             ShapeIndex index = ShapeIndex.builder().addShapes(union, member, string).build();
-            JsonSchemaConverter.create()
+            JsonSchemaConverter.builder()
                     .config(Node.objectNodeBuilder()
-                                    .withMember(JsonSchemaConstants.SMITHY_UNION_STRATEGY, "not-valid")
+                                    .withMember(JsonSchemaConstants.UNION_STRATEGY, "not-valid")
                                     .build())
-                    .convert(index, union);
+                    .shapeIndex(index)
+                    .build()
+                    .convert();
         });
     }
 
     @Test
-    public void dealsWithConflictsWithoutPollutingState() {
-        ShapeIndex index1 = Model.assembler()
-                .addImport(getClass().getResource("recursive.json"))
+    public void convertingToBuilderGivesSameResult() {
+        Model model = Model.assembler()
+                .addImport(getClass().getResource("test-service.json"))
                 .assemble()
-                .unwrap()
-                .getShapeIndex();
-
-        StringShape stringShape = StringShape.builder().id("com.foo#String").build();
-        MemberShape pageScriptsListMember = MemberShape.builder()
-                .id("com.foo#PageScripts$member")
-                .target(stringShape)
-                .build();
-        ListShape pageScripts = ListShape.builder()
-                .id("com.foo#PageScripts")
-                .member(pageScriptsListMember)
-                .build();
-        MemberShape pageScriptsMember = MemberShape.builder()
-                .id("com.foo#Page$scripts")
-                .target(stringShape)
-                .build();
-        StructureShape page = StructureShape.builder()
-                .id("com.foo#Page")
-                .addMember(pageScriptsMember)
-                .build();
-        ShapeIndex index2 = ShapeIndex.builder()
-                .addShapes(page, pageScriptsMember, pageScripts, pageScriptsListMember, stringShape)
+                .unwrap();
+        JsonSchemaConverter converter = JsonSchemaConverter.builder()
+                .shapeIndex(model.getShapeIndex())
+                .rootShape(ShapeId.from("example.rest#RestService"))
                 .build();
 
-        JsonSchemaConverter converter = JsonSchemaConverter.create();
-        SchemaDocument document1 = converter.convert(index1);
-        assertThat(document1.getDefinitions().keySet(), not(empty()));
+        SchemaDocument document1 = converter.convert();
+        SchemaDocument document2 = converter.toBuilder().build().convert();
+        assertThat(document1, equalTo(document2));
 
-        SchemaDocument document2 = converter.convert(index2);
-        assertThat(document2.getDefinitions().keySet(), not(empty()));
-        assertThat(document2.getDefinitions().keySet(), hasItem("#/definitions/ComFooPageScriptsMember"));
-        assertThat(document2.getDefinitions().keySet(), hasItem("#/definitions/ComFooPageScriptsMember2"));
+        // Make sure the tricky null handling of setting rootShape works.
+        JsonSchemaConverter converter2 = converter.toBuilder().rootShape(null).build();
+        SchemaDocument document3 = converter2.convert();
+        SchemaDocument document4 = converter2.toBuilder().build().convert();
+        assertThat(document3, equalTo(document4));
     }
 }

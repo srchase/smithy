@@ -20,7 +20,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
-import software.amazon.smithy.model.node.ObjectNode;
 import software.amazon.smithy.model.shapes.BigDecimalShape;
 import software.amazon.smithy.model.shapes.BigIntegerShape;
 import software.amazon.smithy.model.shapes.BlobShape;
@@ -60,28 +59,18 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
     private static final String UNION_STRATEGY_STRUCTURE = "structure";
 
     private final ShapeIndex index;
-    private final ObjectNode config;
-    private final RefStrategy refStrategy;
-    private final PropertyNamingStrategy propertyNamingStrategy;
+    private final JsonSchemaConverter converter;
     private final List<JsonSchemaMapper> mappers;
 
-    JsonSchemaShapeVisitor(
-            ShapeIndex index,
-            ObjectNode config,
-            RefStrategy refStrategy,
-            PropertyNamingStrategy propertyNamingStrategy,
-            List<JsonSchemaMapper> mappers
-    ) {
+    JsonSchemaShapeVisitor(ShapeIndex index, JsonSchemaConverter converter, List<JsonSchemaMapper> mappers) {
         this.index = index;
-        this.config = config;
-        this.refStrategy = refStrategy;
-        this.propertyNamingStrategy = propertyNamingStrategy;
+        this.converter = converter;
         this.mappers = mappers;
     }
 
     @Override
     public Schema getDefault(Shape shape) {
-        throw new UnsupportedOperationException("Unable to convert " + shape + " to JSON Schema");
+        throw new SmithyJsonSchemaException("Unable to convert " + shape + " to JSON Schema");
     }
 
     @Override
@@ -115,11 +104,11 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
     }
 
     private Schema createRef(MemberShape member) {
-        if (config.getBooleanMemberOrDefault(JsonSchemaConstants.INLINE_MEMBERS)) {
-            throw new UnsupportedOperationException(JsonSchemaConstants.INLINE_MEMBERS + " is not yet supported");
+        if (converter.isInlined(member)) {
+            return member.accept(this);
+        } else {
+            return Schema.builder().ref(converter.toPointer(member.getTarget())).build();
         }
-
-        return Schema.builder().ref(refStrategy.toPointer(member.getId(), config)).build();
     }
 
     @Override
@@ -184,7 +173,7 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
 
         List<String> required = new ArrayList<>();
         for (MemberShape member : memberShapes) {
-            String memberName = propertyNamingStrategy.toPropertyName(container, member, config);
+            String memberName = converter.toPropertyName(member);
             if (member.isRequired()) {
                 required.add(memberName);
             }
@@ -197,8 +186,8 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
 
     @Override
     public Schema unionShape(UnionShape shape) {
-        String unionStrategy = config.getStringMemberOrDefault(
-                JsonSchemaConstants.SMITHY_UNION_STRATEGY, UNION_STRATEGY_ONE_OF);
+        String unionStrategy = converter.getConfig().getStringMemberOrDefault(
+                JsonSchemaConstants.UNION_STRATEGY, UNION_STRATEGY_ONE_OF);
 
         switch (unionStrategy) {
             case UNION_STRATEGY_OBJECT:
@@ -208,7 +197,7 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
             case UNION_STRATEGY_ONE_OF:
                 List<Schema> schemas = new ArrayList<>();
                 for (MemberShape member : shape.getAllMembers().values()) {
-                    String memberName = propertyNamingStrategy.toPropertyName(shape, member, config);
+                    String memberName = converter.toPropertyName(member);
                     schemas.add(Schema.builder()
                             .type("object")
                             .required(ListUtils.of(memberName))
@@ -217,8 +206,8 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
                 }
                 return buildSchema(shape, createBuilder(shape, "object").type(null).oneOf(schemas));
             default:
-                throw new UnsupportedOperationException(String.format(
-                        "Unknown %s strategy: %s", JsonSchemaConstants.SMITHY_UNION_STRATEGY, unionStrategy));
+                throw new SmithyJsonSchemaException(String.format(
+                        "Unknown %s strategy: %s", JsonSchemaConstants.UNION_STRATEGY, unionStrategy));
         }
     }
 
@@ -235,7 +224,7 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
 
     private Shape getTarget(MemberShape member) {
         return index.getShape(member.getTarget())
-                .orElseThrow(() -> new RuntimeException("Unable to find the shape targeted by " + member));
+                .orElseThrow(() -> new SmithyJsonSchemaException("Unable to find the shape targeted by " + member));
     }
 
     private Schema.Builder createBuilder(Shape shape, String defaultType) {
@@ -310,7 +299,7 @@ final class JsonSchemaShapeVisitor extends ShapeVisitor.Default<Schema> {
      */
     private Schema buildSchema(Shape shape, Schema.Builder builder) {
         for (JsonSchemaMapper mapper : mappers) {
-            mapper.updateSchema(shape, builder, config);
+            mapper.updateSchema(shape, builder, converter.getConfig());
         }
 
         return builder.build();

@@ -1,0 +1,29 @@
+{
+  "smithy": "0.4.0",
+  "com.foo": {
+    "shapes": {
+      "StructureA": {
+        "type": "structure",
+        "members": {
+          "a": {
+            "target": "ReferencedA"
+          }
+        }
+      },
+      "ReferencedA": {
+        "type": "structure"
+      },
+      "StructureB": {
+        "type": "structure",
+        "members": {
+          "a": {
+            "target": "ReferencedB"
+          }
+        }
+      },
+      "ReferencedB": {
+        "type": "structure"
+      }
+    }
+  }
+}

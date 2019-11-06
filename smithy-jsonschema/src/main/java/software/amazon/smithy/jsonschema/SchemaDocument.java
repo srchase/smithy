@@ -92,7 +92,7 @@ public final class SchemaDocument implements ToNode, ToSmithyBuilder<SchemaDocum
         // Skip "#/" and split by "/".
         String[] paths = key.substring(2).split("/");
         if (paths.length <= 1) {
-            throw new RuntimeException("Invalid definition JSON pointer. Expected more segments: " + key);
+            throw new SmithyJsonSchemaException("Invalid definition JSON pointer. Expected more segments: " + key);
         }
 
         // Iterate up to the second to last path segment to find the parent.
@@ -106,7 +106,7 @@ public final class SchemaDocument implements ToNode, ToSmithyBuilder<SchemaDocum
             } else if (!(current.get(pathNode) instanceof Map)) {
                 // This could happen when two keys collide. We don't support things
                 // like opening up one schema and inlining another inside of it.
-                throw new RuntimeException("Conflicting JSON pointer definition found at " + key);
+                throw new SmithyJsonSchemaException("Conflicting JSON pointer definition found at " + key);
             } else {
                 current = (Map<StringNode, Object>) current.get(pathNode);
             }

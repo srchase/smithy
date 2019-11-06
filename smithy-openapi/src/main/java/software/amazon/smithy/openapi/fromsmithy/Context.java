@@ -141,7 +141,7 @@ public final class Context {
      * @return Returns the JSON pointer to this shape as a schema component.
      */
     public String getPointer(ToShapeId shapeId) {
-        return getJsonSchemaConverter().getRefStrategy().toPointer(shapeId.toShapeId(), getConfig());
+        return getJsonSchemaConverter().toPointer(shapeId.toShapeId());
     }
 
     /**

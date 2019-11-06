@@ -54,7 +54,7 @@ public interface PropertyNamingStrategy {
         return (containingShape, member, config) -> {
             // Use the jsonName trait if configured to do so.
             if (config.getBooleanMemberOrDefault(
-                    JsonSchemaConstants.SMITHY_USE_JSON_NAME) && member.hasTrait(JsonNameTrait.class)) {
+                    JsonSchemaConstants.USE_JSON_NAME) && member.hasTrait(JsonNameTrait.class)) {
                 return member.getTrait(JsonNameTrait.class).get().getValue();
             }
 
