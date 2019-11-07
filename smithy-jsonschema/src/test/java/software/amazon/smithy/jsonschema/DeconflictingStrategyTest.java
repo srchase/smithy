@@ -17,21 +17,6 @@ import software.amazon.smithy.model.shapes.StructureShape;
 
 public class DeconflictingStrategyTest {
     @Test
-    public void canDeconflictNamesWhereListsAreBasicallyIdentitcal() {
-        StringShape str = StringShape.builder().id("com.bar#String").build();
-        MemberShape memberA = MemberShape.builder().id("com.bar#Page$member").target("com.bar#String").build();
-        ListShape a = ListShape.builder().id("com.bar#Page").member(memberA).build();
-        MemberShape memberB = MemberShape.builder().id("com.foo#Page$member").target("com.foo#String").build();
-        ListShape b = ListShape.builder().id("com.foo#Page").member(memberB).build();
-        ShapeIndex index = ShapeIndex.builder().addShapes(str, a, b, memberA, memberB).build();
-
-        PropertyNamingStrategy propertyNamingStrategy = PropertyNamingStrategy.createDefaultStrategy();
-        RefStrategy strategy = RefStrategy.createDefaultStrategy(index, Node.objectNode(), propertyNamingStrategy);
-        assertThat(strategy.toPointer(a.getId()), equalTo("#/definitions/Page"));
-        assertThat(strategy.toPointer(b.getId()), equalTo("#/definitions/Page2"));
-    }
-
-    @Test
     public void canDeconflictNamesWhereListsAreActuallyDifferent() {
         StringShape str = StringShape.builder().id("com.bar#String").build();
         MemberShape memberA = MemberShape.builder().id("com.bar#Page$member").target("com.bar#String").build();
@@ -44,7 +29,7 @@ public class DeconflictingStrategyTest {
         PropertyNamingStrategy propertyNamingStrategy = PropertyNamingStrategy.createDefaultStrategy();
         RefStrategy strategy = RefStrategy.createDefaultStrategy(index, Node.objectNode(), propertyNamingStrategy);
         assertThat(strategy.toPointer(a.getId()), equalTo("#/definitions/Page"));
-        assertThat(strategy.toPointer(b.getId()), equalTo("#/definitions/Page2"));
+        assertThat(strategy.toPointer(b.getId()), equalTo("#/definitions/PageComFoo"));
     }
 
     @Test

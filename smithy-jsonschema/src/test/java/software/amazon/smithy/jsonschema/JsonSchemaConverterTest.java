@@ -65,6 +65,7 @@ import software.amazon.smithy.model.traits.PrivateTrait;
 import software.amazon.smithy.model.traits.RangeTrait;
 import software.amazon.smithy.model.traits.TitleTrait;
 import software.amazon.smithy.model.traits.UniqueItemsTrait;
+import software.amazon.smithy.utils.IoUtils;
 import software.amazon.smithy.utils.ListUtils;
 
 public class JsonSchemaConverterTest {
@@ -88,6 +89,10 @@ public class JsonSchemaConverterTest {
         SchemaDocument document = JsonSchemaConverter.builder().shapeIndex(model.getShapeIndex()).build().convert();
 
         assertThat(document.getDefinitions().keySet(), not(empty()));
+
+        Node expected = Node.parse(
+                IoUtils.toUtf8String(getClass().getResourceAsStream("test-service.jsonschema.json")));
+        Node.assertEquals(document.toNode(), expected);
     }
 
     @Test

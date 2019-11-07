@@ -18,6 +18,7 @@ package software.amazon.smithy.jsonschema;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import software.amazon.smithy.model.shapes.CollectionShape;
 import software.amazon.smithy.model.shapes.MapShape;
 import software.amazon.smithy.model.shapes.Shape;
@@ -25,22 +26,23 @@ import software.amazon.smithy.model.shapes.ShapeId;
 import software.amazon.smithy.model.shapes.ShapeIndex;
 import software.amazon.smithy.model.shapes.SimpleShape;
 import software.amazon.smithy.model.traits.EnumTrait;
+import software.amazon.smithy.utils.StringUtils;
 
 /**
- * Automatically de-conflicts simple shapes, map shapes, list shapes,
- * and set shapes by sorting conflicting shapes by ID and then appending
- * an automatically incrementing number to the end of the shape.
+ * Automatically de-conflicts map shapes, list shapes, and set shapes
+ * by sorting conflicting shapes by ID and then appending a formatted
+ * version of the shape ID namespace to the colliding shape.
  *
- * <p>String shapes marked with the enum trait are never allowed to
- * conflict since they can easily drift away from compatibility over
- * time. Structures and unions are not allowed to conflict either.
- *
- * <p>Simple types that have the exact same traits and do not have
- * an enum trait are elided into the same JSON schema definition.
+ * <p>Simple types are never generated at the top level because they
+ * are always inlined into complex shapes; however, string shapes
+ * marked with the enum trait are never allowed to conflict since
+ * they can easily drift away from compatibility over time.
+ * Structures and unions are not allowed to conflict either.
  */
 final class DeconflictingStrategy implements RefStrategy {
 
     private static final Logger LOGGER = Logger.getLogger(DeconflictingStrategy.class.getName());
+    private static final Pattern SPLIT_PATTERN = Pattern.compile("\\.");
 
     private final RefStrategy delegate;
     private final Map<ShapeId, String> pointers = new HashMap<>();
@@ -57,7 +59,7 @@ final class DeconflictingStrategy implements RefStrategy {
             }
 
             String pointer = delegate.toPointer(shape.getId());
-            if (isOkToPutShape(index, shape.getId(), pointer)) {
+            if (!reversePointers.containsKey(pointer)) {
                 pointers.put(shape.getId(), pointer);
                 reversePointers.put(pointer, shape.getId());
             } else {
@@ -74,7 +76,11 @@ final class DeconflictingStrategy implements RefStrategy {
     // Some shapes aren't converted to JSON schema at all because they
     // don't have a corresponding definition.
     private boolean isIgnoredShape(Shape shape) {
-        return shape.isResourceShape() || shape.isServiceShape() || shape.isOperationShape() || shape.isMemberShape();
+        return (shape instanceof SimpleShape && !shape.hasTrait(EnumTrait.class))
+               || shape.isResourceShape()
+               || shape.isServiceShape()
+               || shape.isOperationShape()
+               || shape.isMemberShape();
     }
 
     private String deconflict(Shape shape, String pointer, Map<String, ShapeId> reversePointers) {
@@ -88,81 +94,32 @@ final class DeconflictingStrategy implements RefStrategy {
                     shape, reversePointers.get(pointer), pointer));
         }
 
-        // Create a de-conflicted JSON schema pointer that just appends an incrementing
-        // number until there are no conflicts. Note that this requires a sorted
-        // list of shapes from the start in order to not result in chaotic diffs.
-        for (int i = 2; ; i++) {
-            String incrementedPointer = pointer + i;
-            if (!reversePointers.containsKey(incrementedPointer)) {
-                return incrementedPointer;
-            }
-        }
-    }
-
-    private boolean isOkToPutShape(ShapeIndex index, ShapeId id, String pointer) {
-        // If there's no conflict, then do nothing.
-        if (!reversePointers.containsKey(pointer)) {
-            return true;
+        // Create a de-conflicted JSON schema pointer that just appends
+        // the PascalCase formatted version of the shape's namespace to the
+        // resulting pointer.
+        StringBuilder builder = new StringBuilder(pointer);
+        for (String part : SPLIT_PATTERN.split(shape.getId().getNamespace())) {
+            builder.append(StringUtils.capitalize(part));
         }
 
-        // Grab the two conflicting shapes for comparison.
-        Shape shape = index.getShape(id)
-                .orElseThrow(() -> new SmithyJsonSchemaException("Invalid shape ID: " + id));
-        Shape resolvedShape = index.getShape(reversePointers.get(pointer))
-                .orElseThrow(() -> new SmithyJsonSchemaException("Invalid shape ID: " + reversePointers.get(pointer)));
+        String updatedPointer = builder.toString();
 
-        // If we cannot elide the shapes into a single definition, then
-        // it is not ok to add the shape to the mappings, and we need
-        // to try to de-conflict them.
-        if (!canShapesBeElidedIntoSingleShape(resolvedShape, shape)) {
-            return false;
+        if (reversePointers.containsKey(updatedPointer)) {
+            // Note: I don't know if this can ever actually happen... but just in case.
+            throw new ConflictingShapeNameException(String.format(
+                    "Unable to de-conflict shape %s because the de-conflicted name resolves "
+                    + "to another generated name: %s", shape, updatedPointer));
         }
 
-        LOGGER.fine(() -> String.format(
-                "Ignoring JSON schema shape name conflict between %s and %s because they are equivalent. The "
-                + "resulting JSON schema document will refer to a single type even though the Smithy model referred "
-                + "to multiple types.",
-                resolvedShape, shape));
-
-        return true;
-    }
-
-    // Determines if the two given conflicting shapes are equivalent enough
-    // and safe enough to elide into a single JSON schema definition.
-    // We only do this for shapes that are of simple types, have the
-    // same traits, and don't have an enum trait.
-    private boolean canShapesBeElidedIntoSingleShape(Shape a, Shape b) {
-        // The shapes must be the same simple type.
-        if (a.getType() != b.getType() || !(a instanceof SimpleShape)) {
-            LOGGER.fine(() -> String.format(
-                    "Shape %s conflicts with %s because they are not both simple shapes of the same type", a, b));
-            return false;
-        }
-
-        // neither shape can have an enum trait.
-        if (a.hasTrait(EnumTrait.class)) {
-            LOGGER.fine(() -> String.format("Shape %s conflicts with %s because of an enum trait", a, b));
-            return false;
-        }
-
-        // both shapes must have the same exact traits.
-        if (!a.getAllTraits().equals(b.getAllTraits())) {
-            LOGGER.fine(() -> String.format("Shape %s conflicts with %s because of differing traits", a, b));
-            return false;
-        }
-
-        return true;
+        return updatedPointer;
     }
 
     // We only want to de-conflict shapes that are generally not code-generated
-    // because the de-conflicts names can potentially change over time as shapes
+    // because the de-conflicted names can potentially change over time as shapes
     // are added and removed. Things like structures, unions, and enums should
-    // never be de-conflicted from this class. Note that at this point, it's
-    // already been determined that the shapes in question are not equivalent
-    // (allowed to be elided into a single JSON schema type).
+    // never be de-conflicted from this class.
     private boolean isSafeToDeconflict(Shape shape) {
-        return !shape.hasTrait(EnumTrait.class)
-               && (shape instanceof SimpleShape || shape instanceof CollectionShape || shape instanceof MapShape);
+        return shape instanceof CollectionShape || shape instanceof MapShape;
     }
 
     @Override

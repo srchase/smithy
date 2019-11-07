@@ -91,7 +91,6 @@ final class DefaultRefStrategy implements RefStrategy {
         return shape instanceof SimpleShape && !shape.hasTrait(EnumTrait.class);
     }
 
-    // Detect if the shape member can be inlined.
     private String computeInlinedMemberPointer(ShapeId id) {
         if (!id.getMember().isPresent()) {
             return null;

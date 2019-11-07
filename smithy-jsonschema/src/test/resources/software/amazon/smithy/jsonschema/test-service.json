@@ -191,5 +191,21 @@
         }
       }
     }
+  },
+  "other.namespace": {
+    "shapes": {
+      "List2": {
+        "type": "list",
+        "member": {
+          "target": "String"
+        }
+      },
+      "List": {
+        "type": "list",
+        "member": {
+          "target": "String"
+        }
+      }
+    }
   }
 }

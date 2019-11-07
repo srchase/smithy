@@ -1,0 +1,158 @@
+{
+  "definitions": {
+    "CreateDocumentInput": {
+      "type": "object",
+      "properties": {
+        "abc": {
+          "type": "string"
+        },
+        "def": {
+          "type": "number"
+        },
+        "hij": {
+          "$ref": "#/definitions/Map"
+        },
+        "query": {
+          "$ref": "#/definitions/QueryList"
+        },
+        "stringDateTime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "CreateDocumentOutput": {
+      "type": "object",
+      "properties": {
+        "baz": {
+          "type": "string"
+        },
+        "foo": {
+          "type": "string"
+        },
+        "list": {
+          "$ref": "#/definitions/List"
+        },
+        "taggedUnion": {
+          "$ref": "#/definitions/TaggedUnion"
+        },
+        "time": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "EnumString": {
+      "type": "string",
+      "enum": [
+        "a",
+        "c"
+      ]
+    },
+    "List": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "minItems": 0
+    },
+    "List2": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ListOtherNamespace": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "Map": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 10,
+        "minLength": 2
+      }
+    },
+    "PutPayloadInput": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "enum": {
+          "$ref": "#/definitions/EnumString"
+        },
+        "body": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "query": {
+          "type": "number"
+        },
+        "timeQuery": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "PutPayloadOutput": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        }
+      }
+    },
+    "QueryList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Query list member reference docs!"
+      },
+      "maxItems": 10,
+      "minItems": 0,
+      "description": "Query list docs!"
+    },
+    "TaggedUnion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "a"
+          ],
+          "properties": {
+            "a": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "b"
+          ],
+          "properties": {
+            "b": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
