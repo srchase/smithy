@@ -1,14 +1,30 @@
 language: java
 
-jdk:
-- oraclejdk8
-- openjdk8
-- openjdk11
+os:
+  - linux
 
-sudo: true
+jdk:
+  - oraclejdk8
+  - openjdk8
+  - openjdk11
+
+jobs:
+  include:
+    - os: windows
+      language: shell
+
+before_install:
+  - |-
+    case $TRAVIS_OS_NAME in
+      windows)
+        choco install jdk8 -params 'installdir=c:\\jdk' -y
+        export JAVA_HOME=${JAVA_HOME:-/c/jdk}
+        export PATH=${JAVA_HOME}/bin:${PATH}
+        java -version
+    esac
 
 dist: trusty
 
 install: /bin/true
 
-script: ./gradlew clean build -Plog-tests
+script: ./gradlew clean build -Plog-tests --stacktrace --debug

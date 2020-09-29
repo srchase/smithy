@@ -85,7 +85,7 @@ subprojects {
     // Include an Automatic-Module-Name in all JARs.
     afterEvaluate { Project project ->
         tasks.jar {
-            metaInf.with(licenseSpec)
+            //metaInf.with(licenseSpec)
             inputs.property("moduleName", project.ext["moduleName"])
             manifest {
                 attributes "Automatic-Module-Name": project.ext["moduleName"]
