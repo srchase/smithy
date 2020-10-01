@@ -23,3 +23,5 @@ ext {
 dependencies {
     api project(":smithy-model")
 }
+
+jar.archiveName("smithy-aws-traits.jar")

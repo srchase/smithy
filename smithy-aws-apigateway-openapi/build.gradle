@@ -25,3 +25,5 @@ dependencies {
     api project(":smithy-openapi")
     api project(":smithy-aws-apigateway-traits")
 }
+
+jar.archiveName("smithy-aws-apigateway-openapi.jar")

@@ -31,3 +31,5 @@ dependencies {
 jmh {
     timeUnit = "us"
 }
+
+jar.archiveName("smithy-model.jar")

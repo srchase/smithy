@@ -23,3 +23,5 @@ ext {
 dependencies {
     api project(":smithy-aws-traits")
 }
+
+jar.archiveName("smithy-aws-apigateway-traits.jar")

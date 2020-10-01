@@ -64,6 +64,14 @@ subprojects {
         from "${project.rootDir}/NOTICE"
     }
 
+    tasks.javadoc {
+        // The Travis Windows build fails to resolve the title on sub-projects,
+        // so we need to set it manually.
+        if (System.getenv("TRAVIS_OS_NAME") == "windows") {
+            setTitle("smithy")
+        }
+    }
+
     // Set up tasks that build source and javadoc jars.
     task sourcesJar(type: Jar) {
         metaInf.with(licenseSpec)

@@ -26,3 +26,5 @@ dependencies {
     api project(":smithy-jsonschema")
     api project(":smithy-aws-traits")
 }
+
+jar.archiveName("smithy-openapi.jar")

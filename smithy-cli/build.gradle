@@ -48,3 +48,5 @@ tasks.register("optimizeCli", Exec) {
 }
 
 tasks["runtime"].finalizedBy("optimizeCli")
+
+jar.archiveName("smithy-cli-1.2.0.jar")

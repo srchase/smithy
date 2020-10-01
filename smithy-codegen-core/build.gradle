@@ -26,3 +26,5 @@ dependencies {
     api project(":smithy-model")
     api project(":smithy-build")
 }
+
+jar.archiveName("smithy-codegen-core.jar")

@@ -25,3 +25,5 @@ dependencies {
     api project(":smithy-utils")
     api project(":smithy-model")
 }
+
+jar.archiveName("smithy-build.jar")

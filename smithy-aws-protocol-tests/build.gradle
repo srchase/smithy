@@ -29,3 +29,5 @@ dependencies {
     implementation project(":smithy-protocol-test-traits")
     implementation project(":smithy-aws-traits")
 }
+
+jar.archiveName("smithy-aws-protocol-tests.jar")

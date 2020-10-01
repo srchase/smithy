@@ -25,3 +25,5 @@ dependencies {
     api project(":smithy-model")
     api project(":smithy-utils")
 }
+
+jar.archiveName("smithy-linters.jar")
